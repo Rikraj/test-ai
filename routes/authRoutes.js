@@ -1,6 +1,11 @@
 import express from "express";
 import { body, validationResult } from "express-validator";
-import { registerUser, loginUser, removeUserInfo } from "../services/authServices.js";
+import {
+  registerUser,
+  loginUser,
+  removeUserInfo,
+  loginWithGoogle,
+} from "../services/authServices.js";
 import { validateToken } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
@@ -58,14 +63,26 @@ const deleteAccount = async (req, res) => {
   try {
     const result = await removeUserInfo(userId);
     res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ errors: [error.message] });
   }
-  catch (error) {
-    res.status(500).json({errors: [error.message]});
+};
+
+const signinWithGoogle = async (req, res) => {
+  console.log(res.body);
+  const { id_token } = req.body;
+  try {
+    const user = await loginWithGoogle(id_token);
+    res.status(200).json(user);
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({ errors: [error.message] });
   }
 };
 
 router.post("/signup", ...validateSignup, signup);
 router.post("/signin", ...validateSignin, signin);
 router.delete("/delete-account", validateToken, deleteAccount);
+router.post("/google", signinWithGoogle);
 
 export default router;

@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import pool from "../config/db.js";
+import { OAuth2Client } from "google-auth-library";
 
 dotenv.config();
 
@@ -66,4 +67,62 @@ export const removeUserInfo = async (userId) => {
   await pool.query("DELETE FROM users WHERE id = $1", [userId]);
 
   return { message: "Account deleted successfully" };
+};
+
+export const loginWithGoogle = async (idToken) => {
+  console.log(idToken);
+
+  const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+  // Verify Google ID token
+
+  // // after acquiring an oAuth2Client...
+  // const tokenInfo = await client.getTokenInfo(idToken);
+
+  // // take a look at the scopes originally provisioned for the access token
+  // // console.log(tokenInfo.scopes);
+  // console.log(tokenInfo);
+
+  // const ticket = await client.verifyIdToken({
+  //   idToken: idToken,
+  //   audience: process.env.GOOGLE_CLIENT_ID, // Your web client ID
+  // });
+
+  // console.log(ticket);
+
+  // const payload = ticket.getPayload();
+  // const { sub: googleId, email, name } = payload;
+
+  const response = await fetch(
+    "https://www.googleapis.com/oauth2/v3/userinfo",
+    {
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+    }
+  );
+  const userInfo = await response.json();
+  console.log(userInfo);
+  const {sub: googleId, email, name} = userInfo;
+
+  // Check if user already exists
+  let user = await getUserByEmail(email);
+
+  if (user) {
+    // Link Google ID if user exists but hasn't linked Google yet
+    if (!user.google_id) {
+      user = await pool.query(
+        "UPDATE users SET google_id = $1 WHERE email = $2 RETURNING *",
+        [googleId, email]
+      );
+    }
+  } else {
+    // Create new user if they don't exist
+    user = await pool.query(
+      "INSERT INTO users (name, email, google_id) VALUES ($1, $2, $3) RETURNING *",
+      [name, email, googleId]
+    );
+  }
+
+  const token = generateToken(user.id);
+  return { id: user.id, name: user.name, email: user.email, token };
 };

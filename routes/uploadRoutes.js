@@ -81,7 +81,7 @@ const uploadImg = async (req, res) => {
       // Img -> text service
       const imageBase64 = await imgToBase64(filePath);
       const { text } = await imgToText(imageBase64);
-      // console.log(text);
+      console.log("Text: ", text);
       // createQuestions service
       const result = await createQuestions(userId, text);
       res.status(200).json(result);

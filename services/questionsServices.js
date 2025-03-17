@@ -121,7 +121,7 @@ export const createQuestions = async (userId, text) => {
       { role: "user", content: text },
     ],
     response_format: zodResponseFormat(PracticeQuestions, "practice_questions"),
-    // temperature: 0.7
+    // temperature: 0.5
   });
 
   const practice_questions = response.choices[0].message;
