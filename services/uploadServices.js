@@ -65,6 +65,11 @@ export const imgToText = async (base64Image) => {
     response_format: zodResponseFormat(ExtractedText, "text"),
   });
 
+  // If the model refuses to respond, you will get a refusal message
+  if (response.choices[0].message.refusal) {
+    throw new Error("Unable to create questions");
+  }
+
   const text = response.choices[0].message.parsed;
 
   // console.log("From Image: ", response.choices[0].message.content);
@@ -141,6 +146,7 @@ export const pdfToText = async (pdfPath) => {
   });
   const pdf = await loadingTask.promise;
   const numPages = pdf.numPages;
+  const imgLimit = 1;
   let numImgs = 0;
   let text = "";
 
@@ -150,52 +156,52 @@ export const pdfToText = async (pdfPath) => {
     // Extract text
     text += textContent.items.map((item) => item.str).join(" ") + "\n";
 
-    // maximum number of images processed in a single pdf document (optional)
-    if (numImgs >= 100) continue;
+    // // maximum number of images processed in a single pdf document (optional)
+    // if (numImgs >= imgLimit) continue;
 
-    // Extract images + convert them to text
-    const operatorList = await page.getOperatorList();
-    let imgContent = "";
-    for (let j = 0; j < operatorList.fnArray.length; j++) {
-      if (operatorList.fnArray[j] === OPS.paintImageXObject) {
-        const imgName = operatorList.argsArray[j][0];
+    // // Extract images + convert them to text
+    // const operatorList = await page.getOperatorList();
+    // let imgContent = "";
+    // for (let j = 0; j < operatorList.fnArray.length; j++) {
+    //   if (operatorList.fnArray[j] === OPS.paintImageXObject) {
+    //     const imgName = operatorList.argsArray[j][0];
 
-        await new Promise((resolve) => {
-          page.objs.get(imgName, async (imgObj) => {
-            if (imgObj && imgObj.data) {
-              const { data, width, height, kind } = imgObj;
+    //     await new Promise((resolve) => {
+    //       page.objs.get(imgName, async (imgObj) => {
+    //         if (imgObj && imgObj.data) {
+    //           const { data, width, height, kind } = imgObj;
 
-              const rgba = convertToRGBA(data, width, height, kind);
-              if (!rgba) return resolve();
-              const rgbaBuffer = Buffer.from(rgba);
-              const pngBuffer = await sharp(rgbaBuffer, {
-                raw: {
-                  width: width,
-                  height: height,
-                  channels: 4, // RGBA
-                },
-              })
-                .resize({ width: 720, height: 720, fit: "inside" }) // Resize while keeping aspect ratio
-                .png({ quality: 80 }) // Compress PNG (80% quality)
-                .toBuffer();
+    //           const rgba = convertToRGBA(data, width, height, kind);
+    //           if (!rgba) return resolve();
+    //           const rgbaBuffer = Buffer.from(rgba);
+    //           const pngBuffer = await sharp(rgbaBuffer, {
+    //             raw: {
+    //               width: width,
+    //               height: height,
+    //               channels: 4, // RGBA
+    //             },
+    //           })
+    //             .resize({ width: 720, height: 720, fit: "inside" }) // Resize while keeping aspect ratio
+    //             .png({ quality: 80 }) // Compress PNG (80% quality)
+    //             .toBuffer();
 
-              // Convert the PNG buffer to Base64
-              const base64Image = pngBuffer.toString("base64");
+    //           // Convert the PNG buffer to Base64
+    //           const base64Image = pngBuffer.toString("base64");
 
-              numImgs += 1;
-              // process img using openai API
-              const currImgContent = await imgToText(base64Image);
+    //           numImgs += 1;
+    //           // process img using openai API
+    //           const {text: currImgContent} = await imgToText(base64Image);
 
-              imgContent += currImgContent.text + "\n";
-            }
-            resolve();
-          });
-        });
-      }
-    }
+    //           imgContent += currImgContent + "\n";
+    //         }
+    //         resolve();
+    //       });
+    //     });
+    //   }
+    // }
 
-    text += imgContent;
+    // text += imgContent;
   }
-  // console.log("Response: ", text);
+
   return { text };
 };

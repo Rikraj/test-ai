@@ -3,6 +3,7 @@ import pool from "../config/db.js";
 import openai from "../config/openAIConfig.js";
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
+import { get_encoding } from "tiktoken";
 
 dotenv.config();
 
@@ -79,6 +80,109 @@ export const getQuestions = async (topicId) => {
   return rows;
 };
 
+// export const createQuestions = async (userId, text) => {
+//   const prompt = `
+//   Generate practice questions from user input. If user input is unclear or general greetings or anything that doesn't qualify as a topic from which practice questions can be generated, return empty questions array. Ensure:
+//   1. **Short-form questions** test factual recall
+//   2. **Long-form questions** require detailed explanations
+//   3. **MCQs** should have 4 options, with only one correct answer
+//   4. **Multiple-correct MCQs** should have 4 options, more than one can be correct
+//   5. **Avoid yes/no questions**
+//   6. **Use technical terms properly and structure MCQs to test conceptual understanding**
+//   7. **Ensure math/physics problems include numerical examples where relevant**
+//   8. **For numerical examples include steps and explanations**
+//   9. **For MCQs and Multi-corrects use distractor options that include**
+//     - **Common misconceptions**
+//     - **Close but incorrect answers**
+//     - **Answers that sound plausible but are factually wrong**
+//   10. **Gradually increase difficulty level**
+//   11. **Generate anywhere between 15 to 60 questions** depending on the length and topics covered in input
+//   12. **Some topics might not be described in detail, use your own knowledge on those topics**
+//   `;
+
+//   const Question = z.object({
+//     type: z.enum(["short", "long", "mcq", "multi_correct", "numerical"]),
+//     // difficulty: z.enum(["easy", "medium", "hard"]),
+//     question: z.string(),
+//     options: z.array(z.string()).nullable(),
+//     steps: z.array(z.string()).nullable(),
+//     answer: z.string().nullable(),
+//     answers: z.array(z.string()).nullable(),
+//   });
+//   const PracticeQuestions = z.object({
+//     topic_name: z.string(),
+//     topic_emoji: z.string(),
+//     questions: z.array(Question),
+//   });
+
+//   const response = await openai.beta.chat.completions.parse({
+//     model: "gpt-4o-mini",
+//     messages: [
+//       { role: "system", content: prompt },
+//       { role: "user", content: text },
+//     ],
+//     response_format: zodResponseFormat(PracticeQuestions, "practice_questions"),
+//     temperature: 0.5
+//   });
+
+//   const practice_questions = response.choices[0].message;
+
+//   // If the model refuses to respond, you will get a refusal message
+//   if (practice_questions.refusal) {
+//     console.log(practice_questions.refusal);
+//     throw new Error("Unable to create questions");
+//   }
+
+//   // console.log(practice_questions.parsed);
+//   const { topic_name, topic_emoji, questions } = practice_questions.parsed;
+//   if (questions.length === 0) return ;
+
+//   const topic = await uploadQuestions(
+//     userId,
+//     topic_name,
+//     topic_emoji,
+//     questions
+//   );
+//   return topic;
+// };
+
+const countTokens = (sentence) => {
+  const encoding = get_encoding("o200k_base");
+  const tokens = encoding.encode(sentence);
+  encoding.free();
+
+  return tokens.length;
+};
+
+const chunkText = (text, maxTokens = 30000) => {
+  const sentences = text.split(/(?<=[.?!])\s+/); // Split at sentence boundaries
+  console.log('sentences extracted');
+  console.log(sentences.length);
+  let chunks = [],
+    currentChunk = "",
+    currentTokens = 0;
+
+  for (let i=0; i < sentences.length; i++) {
+    let sentence = sentences[i];
+    if (i % 50 === 0) console.log(i);
+    // let tokenCount = countTokens(sentence); // token count
+    let tokenCount = sentence.split(/\s+/).length * 1.33; // Approximate token count
+
+    if (currentTokens + tokenCount > maxTokens) {
+      chunks.push(currentChunk.trim());
+      currentChunk = sentence;
+      currentTokens = tokenCount;
+    } else {
+      currentChunk += " " + sentence;
+      currentTokens += tokenCount;
+    }
+  }
+  console.log('all chunks found');
+  if (currentChunk) chunks.push(currentChunk.trim());
+
+  return chunks;
+};
+
 export const createQuestions = async (userId, text) => {
   const prompt = `
   Generate practice questions from user input. If user input is unclear or general greetings or anything that doesn't qualify as a topic from which practice questions can be generated, return empty questions array. Ensure:
@@ -95,13 +199,12 @@ export const createQuestions = async (userId, text) => {
     - **Close but incorrect answers**
     - **Answers that sound plausible but are factually wrong**
   10. **Gradually increase difficulty level**
-  11. **Generate anywhere between 15 to 60 questions** depending on the length and topics covered in input
+  11. **Generate anywhere between 15 to 30 questions** depending on the length and topics covered in input
   12. **Some topics might not be described in detail, use your own knowledge on those topics**
   `;
 
   const Question = z.object({
     type: z.enum(["short", "long", "mcq", "multi_correct", "numerical"]),
-    // difficulty: z.enum(["easy", "medium", "hard"]),
     question: z.string(),
     options: z.array(z.string()).nullable(),
     steps: z.array(z.string()).nullable(),
@@ -114,27 +217,44 @@ export const createQuestions = async (userId, text) => {
     questions: z.array(Question),
   });
 
-  const response = await openai.beta.chat.completions.parse({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: prompt },
-      { role: "user", content: text },
-    ],
-    response_format: zodResponseFormat(PracticeQuestions, "practice_questions"),
-    // temperature: 0.5
-  });
+  const practice_questions = [];
+  console.log("chunking started");
+  const chunks = chunkText(text);
+  console.log("chunked");
+  console.log(chunks.length);
+  for (let chunk of chunks) {
+    const response = await openai.beta.chat.completions.parse({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: prompt },
+        { role: "user", content: chunk },
+      ],
+      response_format: zodResponseFormat(
+        PracticeQuestions,
+        "practice_questions"
+      ),
+      temperature: 0.5,
+    });
 
-  const practice_questions = response.choices[0].message;
+    // If the model refuses to respond, you will get a refusal message
+    if (response.choices[0].message.refusal) {
+      continue;
+    }
 
-  // If the model refuses to respond, you will get a refusal message
-  if (practice_questions.refusal) {
-    console.log(practice_questions.refusal);
-    throw new Error("Unable to create questions");
+    const curr_questions = response.choices[0].message.parsed;
+    practice_questions.push(curr_questions);
   }
+  console.log("Questions extracted");
+  if (practice_questions.length === 0) throw new Error("Unable to create questions");
   
-  // console.log(practice_questions.parsed);
-  const { topic_name, topic_emoji, questions } = practice_questions.parsed;
-  if (questions.length === 0) return ;
+  const { topic_name, topic_emoji } = practice_questions[0];
+  const questions = [];
+  for (let i = 0; i < practice_questions.length; i++) {
+    const { questions: curr_questions } = practice_questions[i];
+    questions.push(...curr_questions);
+  }
+
+  if (questions.length === 0) throw new Error("Unable to create questions");
 
   const topic = await uploadQuestions(
     userId,

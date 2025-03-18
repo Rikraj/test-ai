@@ -48,6 +48,8 @@ const uploadPdf = async (req, res) => {
     } else {
       // Pdf -> text + img -> text service
       const { text } = await pdfToText(filePath);
+      // console.log("Text: ", text);
+      console.log("Text extracted");
       // createQuestions service
       const result = await createQuestions(userId, text);
       res.status(200).json(result);
